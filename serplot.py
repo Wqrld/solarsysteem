@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import serial
+import json
 import requests
 import sys
 from matplotlib import pyplot as plt
@@ -9,17 +10,38 @@ import datetime
 import time
 hexbytes = []
 maxbyte = bytes.fromhex("FF")
-print(open("mysqlpassword.txt", "r").read())
-db = pymysql.connect("localhost", "admin", open("mysqlpassword.txt", "r").read().strip(), "stats")
+#print(open("mysqlpassword.txt", "r").read())
+
+with open('config.json') as configfile:
+  data = configfile.read()
+config = json.loads(data)
+db = pymysql.connect(config['mysqlhost'], config['mysqluser'], config['mysqlpassword'], config['mysqldb'])
 cursor = db.cursor()
 
 ser = serial.Serial(port= '/dev/ttyUSB0', timeout= 5)  # open serial port
 #ser.close()
 print(ser.name)         # check which port was really used
 #ser.write(bytes.fromhex("01 01 FF FF B6 00 00 00 B6"))     # write a string
+
+
+with open('adres.txt', 'w+') as adresbestand:
+  adres = adresbestand.read()
+  if adres == "":
+    ser.write(bytes.fromhex("00 00 FF FF C1 00 00 00 BF"))
+    address = ser.read(9)[2:4]
+    adresbestand.write(str(address))
+
+#this works, write to file
+#ser.write(bytes.fromhex("00 00 FF FF C1 00 00 00 BF"))    #identify omvormer
+#print(ser.read(9))
+
+
+
 ser.write(bytes.fromhex("C0 05 FF FF B6 00 00 00 79"))
 #\x11\x00\x00\x00\xB6\x00\x00\x00\xC7
 #ser.write(bytes.fromhex("00 00 FF FF C1 00 00 00 79"))    #identify omvormer
+#print(ser.read(2))
+
 #counter = 1
 #while(True):
 #  print(ser.read(1))
@@ -64,9 +86,10 @@ else:
   f.write(dc + " Watt DC\n")
   f.write(ac + " Watt AC\n")
   f.write(str(runtime) + " Minuten runtime = " + str(runtime / 60 / 24 / 365.25) + " Jaar")
- # x = requests.post('https://novumzon.wqrld.net/newdata', json={"apikey": "s7s5asdu87sj4sdhasdhgJFSADSFSDFSDFSDF78s9ydhf7864sd568f4sdf6g4dfh8g5dhf4G%DFg3d5fg7df", "wattTotaal": str(round(wtot1 + wtot2, 2)), "wattDC": dc, "wattAC": ac, "runtime": runtime })
-  x = requests.post('https://novumzon.wqrld.net/newdata', json={"apikey": "s7s5asdu87sj4sdhasdhgJFSADSFSDFSDFSD8g5dhf4G%DFg3d5fg7df", "wattTotaal": str(round(wtot1 + wtot2, 2)), "wattDC": dc, "wattAC": ac, "runtime": runtime })
+  x = requests.post('https://novumzon.wqrld.net/newdata', json={"apikey": config['apikey'], "wattTotaal": str(round(wtot1 + wtot2, 2)), "wattDC": dc, "wattAC": ac, "runtime": runtime }, headers = {"apikey": config['apikey']})
   print(x.text)
+  y = requests.post('https://novumzon.wqrld.net/uploadimage', files={'plot': open('/var/www/html/plot.png' ,'rb')}, headers = {"apikey": config['apikey']})
+  print(y.text)
   if(float(dc) > 8000):
     print(dc + "DC is too high, exiting")
     sys.exit()
@@ -74,7 +97,7 @@ else:
   if float(dc) != 0:
     cursor.execute('insert into readings values("' + str(datetime.datetime.now().date()) + '","' + str(datetime.datetime.now().strftime('%H:%M')) + '","' + dc + '","' + ac + '")')
     db.commit()
-  cursor.execute("select * from readings where date = '" + str(datetime.datetime.now().date()) + "' group by time order by STR_TO_DATE(time, '%H:%M') DESC LIMIT 50")
+  cursor.execute("select * from readings where date = '" + str(datetime.datetime.now().date()) + "' group by time order by STR_TO_DATE(time, '%H:%M') DESC LIMIT 2880")
   results = cursor.fetchall()
   times = []
 
@@ -92,8 +115,12 @@ else:
   #plt.xaxis.set_major_locator(mdates.HourLocator())
   plt.xlabel('Tijd')
   plt.ylabel('Watt DC')
+#  plt.xticks(rotation=45)
   plt.ylim(bottom=0)
- # plt.figure(figsize=(10,20))
+#  plt.setp(plt.get_xticklabels(), rotation=30, horizontalalignment='right')
+ # plt.autofmt_xdates()
+# plt.figure(figsize=(10,20))
+  #plt.setp(plt.xticks()[0], rotation=90, ha="right")
   plt.savefig('/var/www/html/plot.png')
 #for x in reading[1]:
 #3  hexbytes.append('' + reading + ' ')
